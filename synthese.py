@@ -24,11 +24,27 @@ def updateNumberOfNeighborsMask(number_of_neighbors_mask, pixel):
     number_of_neighbors_mask[pixel[0], pixel[1]] = -1
     return number_of_neighbors_mask
 
-def GetPixelWithMostColoredNeighbors(number_of_neighbors_mask):
+def updateBoundingBox(bbox, pixel):
+    bboxList = list(bbox)
+    if pixel[0] < bbox[0][0]:
+        bboxList[0] = (pixel[0], bbox[0][1])
+    if pixel[0] > bbox[0][1] - 1:
+        bboxList[0] = (bbox[0][0], pixel[0] + 1)
+    if pixel[1] < bbox[1][1]:
+        bboxList[1] = (pixel[1] + 1, bbox[1][0])
+    if pixel[1] > bbox[1][0] - 1:
+        bboxList[1] = (bbox[1][1], pixel[1] + 1)
+
+    bbox = tuple(bboxList)
+    return bbox
+
+def GetPixelWithMostColoredNeighbors(number_of_neighbors_mask, bbox):
     max_neighbors = 0
     max_neighbors_pixel = (-1, -1)
     for i in range(number_of_neighbors_mask.shape[0]):
         for j in range(number_of_neighbors_mask.shape[1]):
+            if bbox[0][0] <= i <= bbox[0][1] - 1 and bbox[1][1] <= j <= bbox[1][0] - 1:
+                continue
             if number_of_neighbors_mask[i, j] > max_neighbors:
                 max_neighbors = number_of_neighbors_mask[i, j]
                 max_neighbors_pixel = (i, j)
@@ -44,11 +60,10 @@ def GetNeighborhoodWindow(pixel, image, half):
 def SSD(template, sample):
     return np.sum((template - sample) ** 2)
 
-def SSD_Gaussian(template, sample, mask):
+def SSD_Gaussian(template, sample):
     sigma = template.shape[0] / 6.4
     difference = template - sample
-    extended_mask = mask[:, :, np.newaxis]
-    ssd = np.sum(extended_mask * (difference ** 2) * np.exp(-difference ** 2 / (2 * sigma ** 2)))
+    ssd = np.sum((difference ** 2) * np.exp(-difference ** 2 / (2 * sigma ** 2)))
     return ssd
 
 
@@ -92,15 +107,19 @@ def efrosLeung(sample_image, texture_size, seed_size, half_patch_size, epsilon):
     number_of_neighbors_mask[texture_center_y - half_seed_size:texture_center_y + half_seed_size,
                         texture_center_x - half_seed_size:texture_center_x + half_seed_size] = -1
 
+    bbox = [(texture_center_y - half_seed_size, texture_center_y + half_seed_size),
+            (texture_center_x + half_seed_size, texture_center_x - half_seed_size)]
+
     number_of_neighbors_mask = NumberOfNeighborsMask(number_of_neighbors_mask)
 
     cv2.imshow('Generated Texture', generated_texture)
-    cv2.imshow('Number of Neighbors Mask', number_of_neighbors_mask)
+    #cv2.imshow("Bounding box", generated_texture[bbox[0][0]:bbox[0][1], bbox[1][1]:bbox[1][0], :])
+    #cv2.imshow('Number of Neighbors Mask', number_of_neighbors_mask)
     cv2.waitKey(1)
-    total_pixels = generated_texture.shape[0] * generated_texture.shape[1] * generated_texture.shape[2]
 
     while (number_of_neighbors_mask != -1).any():
-        pixel = GetPixelWithMostColoredNeighbors(number_of_neighbors_mask)
+        pixel = GetPixelWithMostColoredNeighbors(number_of_neighbors_mask, bbox)
+        bbox = updateBoundingBox(bbox, pixel)
         if pixel[0] < half_patch_size or pixel[0] > texture_size - half_patch_size or pixel[1] < half_patch_size or pixel[1] > texture_size - half_patch_size:
             number_of_neighbors_mask = updateNumberOfNeighborsMask(number_of_neighbors_mask, pixel)
             continue
@@ -114,27 +133,28 @@ def efrosLeung(sample_image, texture_size, seed_size, half_patch_size, epsilon):
         number_of_neighbors_mask = updateNumberOfNeighborsMask(number_of_neighbors_mask, pixel)
 
         cv2.imshow('Generated Texture', generated_texture)
-        cv2.imshow('Number of Neighbors Mask', number_of_neighbors_mask)
+        #cv2.imshow('Number of Neighbors Mask', number_of_neighbors_mask)
         cv2.waitKey(1)  # Update display and wait for 1ms
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        colored_pixels = np.count_nonzero(generated_texture)
-        #print("Percentage: {:.3%}".format(colored_pixels / total_pixels))
 
     return generated_texture
 
 if __name__ == '__main__':
     start = time.time()
-    image_number = 1
+
+    image_number = 0
+    texture_size = 70
+    seed_size = 16
+    epsilon = 0.01
+    half_patch_size = 8
+
     sample_image = Image.open("textures_data/text{}.png".format(image_number))
     np_sample_img = np.array(sample_image)
-    texture_size = 64
-    seed_size = 24
-    epsilon = 0.0
-    half_patch_size = 12
+
     np_texture = efrosLeung(np_sample_img, texture_size, seed_size, half_patch_size, epsilon)
+
     texture = Image.fromarray(np_texture)
     texture.save("generated_images/text{}_size{}_seed{}_patch{}_epsilon{}.png".format(image_number,texture_size, seed_size, half_patch_size, epsilon))
     texture.show()
+
     end = time.time()
     print("Time: {:.2f} seconds".format(end - start))
